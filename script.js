@@ -1,11 +1,13 @@
 var docWidth, docHeight;
 var squareSize, boardWidth, boardHeight;
 var dimensions = [8, 8];
-var expansionConstant = 1.5;
-var timeToThink = 2;
+var expansionConstant = 2;
+var timeToThink = 10;
+var aiTurn = 'first';
 
 var boardui = getElemId("board");
 var brush = boardui.getContext("2d");
+var analElem = getElemId('anal'), numTrialsElem = getElemId('num-trials');
 
 var board, turnGlobal;
 var globalRoot;
@@ -47,6 +49,7 @@ function onResize() {
 function newGame() {
 	getSettings();
 	populateSettingsForm(gameSettings.getSettings());
+	resizeBoard();
 
 	board = new Array(dimensions[0]); // -1 = empty, 0 = black, 1 = white
 	for (let i = 0; i < board.length; i++) {
@@ -64,6 +67,9 @@ function newGame() {
 	globalRoot = createMctsRoot();
 
 	drawBoard();
+
+	if (over === -2 && aiTurn !== 'null' && ((turnGlobal === 0) === (aiTurn === 'first') || aiTurn === "both"))
+		setTimeout(playAiMove, 25);
 }
 
 function getSettings() {
@@ -121,8 +127,17 @@ function drawPiece(x, y, hover) {
 	brush.closePath();
 }
 
+function updateAnalysis() {
+	let range = getMctsDepthRange();
+	analElem.innerHTML = "Analysis: Depth-" + range[1] + " Result-" +
+		range[2] + " Certainty-" + (globalRoot && globalRoot.totalTrials > 0 ?
+		(resultCertainty(globalRoot) * 100).toFixed(0):"0") + "%";
+	numTrialsElem.innerHTML = "Trials: " + numberWithCommas(globalRoot.totalTrials);
+}
+
 function drawBoard(hoverMove) {
 	clearBoard();
+	updateAnalysis();
 
 	for (let i = 0; i < board.length; i++)
 		for (let a = 0; a < board[i].length; a++)
@@ -238,11 +253,23 @@ function getWinner(tboard) { // -1 tie, 0 black, 1 white
 	return 1;
 }
 
-function setTurn(newTurn) {
+function setTurn(newTurn, move) {
 	turnGlobal = newTurn;
+
+	globalRoot = mctsGetNextRoot(move);
+	if (globalRoot)
+		globalRoot.parent = null;
+	else globalRoot = createMctsRoot();
+
 	let legalMoves = getLegalMoves(board, turnGlobal);
 	if (legalMoves.length === 0) {
 		turnGlobal = (newTurn + 1) % 2;
+
+		globalRoot = mctsGetNextRoot([-1]);
+		if (globalRoot)
+			globalRoot.parent = null;
+		else globalRoot = createMctsRoot();
+
 		legalMoves = getLegalMoves(board, turnGlobal);
 		if (legalMoves.length === 0)
 			over = getWinner(board);
@@ -250,6 +277,31 @@ function setTurn(newTurn) {
 	if (over !== -2)
 		alert("The game is over, " + over);
 	drawBoard();
+
+	if (over === -2 && aiTurn !== 'null' && ((turnGlobal === 0) === (aiTurn === 'first') || aiTurn === "both"))
+		setTimeout(playAiMove, 25);
+}
+
+function mctsGetNextRoot(move) {
+	if (!globalRoot || !globalRoot.children)
+		return null;
+	if (globalRoot.children.length === 1 && move[0] === -1) // in case of pass
+		return globalRoot.children[0];
+	for (var i = 0; i < globalRoot.children.length; i++)
+		if (globalRoot.children[i].lastMove[0] === move[0] && globalRoot.children[i].lastMove[1] === move[1])
+			return globalRoot.children[i];
+	return null;
+}
+
+function resultCertainty(root) {
+	let turn = root.turn, antiturn = (root.turn + 1) % 2;
+	if (root.totalTrials > (root.results[0] + root.results[1]) * 2)
+		return 1 - (root.results[turn] + root.results[antiturn]) / root.totalTrials;
+	else if (root.results[turn] > root.results[antiturn])
+		return (root.results[turn] - root.results[antiturn]) / root.totalTrials;
+	else if (root.results[turn] < root.results[antiturn])
+		return (root.results[antiturn] - root.results[turn]) / root.totalTrials;
+	else return 1 - (root.results[turn] + root.results[antiturn]) / root.totalTrials;
 }
 
 boardui.addEventListener('mousedown', function (e) {
@@ -262,7 +314,7 @@ boardui.addEventListener('mousedown', function (e) {
 
 	playMove(board, move[0], move[1], turnGlobal, legality);
 
-	setTurn((turnGlobal + 1) % 2);
+	setTurn((turnGlobal + 1) % 2, move);
 });
 
 boardui.addEventListener('mousemove', function (e) {
@@ -283,9 +335,8 @@ function playAiMove() {
 
 function fpaim() {
 	let bestMove = getBestMoveMCTS();
-	console.log(bestMove);
 	playMove(board, bestMove[0], bestMove[1], turnGlobal, bestMove[2]);
-	setTurn((turnGlobal + 1) % 2);
+	setTurn((turnGlobal + 1) % 2, bestMove);
 }
 
 function getBestMoveMCTS() {
@@ -307,6 +358,32 @@ function mostTriedChild(root, exclude) {
 			child = root.children[i];
 		}
 	return child;
+}
+
+function leastTriedChild(root) {
+	var leastTrials = root.totalTrials + 1, child = null;
+	if (!root.children)
+		return null;
+	for (var i = 0; i < root.children.length; i++)
+		if (root.children[i].totalTrials < leastTrials) {
+			leastTrials = root.children[i].totalTrials;
+			child = root.children[i];
+		}
+	return child;
+}
+
+function getMctsDepthRange() {
+	var root, range = new Array(3);
+	for (range[0] = -1, root = globalRoot; root && root.children; range[0]++, root = leastTriedChild(root));
+	for (range[1] = -1, root = globalRoot; root && root.children; range[1]++, root = mostTriedChild(root));
+	if (globalRoot.totalTrials > (globalRoot.results[0] + globalRoot.results[1]) * 3)
+		range[2] = "Tie";
+	else if (globalRoot.results[0] > globalRoot.results[1])
+		range[2] = "B";
+	else if (globalRoot.results[0] < globalRoot.results[1])
+		range[2] = "W";
+	else range[2] = "Tie";
+	return range;
 }
 
 function runMCTS(time) {
@@ -365,7 +442,7 @@ function mctsSimulate(father, tboard) {
 			continue;
 		}
 		passed = false;
-		move = legalMoves[parseInt(Math.random() * legalMoves.length)];
+		move = legalMoves[Math.random() * legalMoves.length | 0];
 		playMove(tboard, move[0], move[1], turn, move[2]);
 		turn = (turn + 1) % 2;
 		// console.log(move);
@@ -376,6 +453,8 @@ function mctsSimulate(father, tboard) {
 function createMctsRoot() {
 	return new MctsNode(turnGlobal, null, []);
 }
+
+var DEBUG = false;
 
 class MctsNode {
 	constructor(turn, parent, lastMove) {
@@ -390,10 +469,11 @@ class MctsNode {
 	}
 
 	chooseChild(tboard) {
-		// printBoard(tboard);
 		if (this.lastMove.length > 0 && this.lastMove[0] !== -1)
 			playMove(tboard, this.lastMove[0], this.lastMove[1], this.parent.turn,
 				this.lastMove[2]);
+		if (DEBUG)
+			printBoard(tboard);
 		if (this.children === undefined) {
 			this.children = mctsGetChildren(this, tboard);
 			if (this.gameOver === -2)
@@ -450,7 +530,7 @@ class MctsNode {
 }
 
 function mctsChildPotential(child, lt) {
-	var w = child.results[(child.turn + 1) % 2] - child.results[child.turn];
+	var w = child.results[(child.turn + 1) % 2];
 	var n = child.totalTrials;
 	var c = expansionConstant;
 
