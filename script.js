@@ -139,14 +139,71 @@ function getMove(xloc, yloc) {
 	return [Math.floor((xloc - left) / squareSize), Math.floor((yloc - top) / squareSize)];
 }
 
-function legalMove(tboard, x, y) {
-	if (tboard[x][y] !== -1)
-		return -1;
-	return 0;
+function moveLegal(tboard, x, y, turn, dx, dy) {
+	x += dx;
+	y += dy;
+	let dissimilarEncounter = false;
+	while (x < tboard.length && y < tboard[0].length && x >= 0 && y >= 0) {
+		if (tboard[x][y] === -1)
+			return false;
+		if (tboard[x][y] === turn)
+			return dissimilarEncounter;
+		dissimilarEncounter = true;
+		x += dx;
+		y += dy;
+	}
+	return false;
 }
 
-function playMove(tboard, x, y, turn, startWith) {
+function legalMove(tboard, x, y, turn) {
+	if (tboard[x][y] !== -1)
+		return -1;
+	if (moveLegal(tboard, x, y, turn,  1,  1)) return 0;
+	if (moveLegal(tboard, x, y, turn,  1,  0)) return 1;
+	if (moveLegal(tboard, x, y, turn,  1, -1)) return 2;
+	if (moveLegal(tboard, x, y, turn,  0,  1)) return 3;
+	if (moveLegal(tboard, x, y, turn,  0, -1)) return 4;
+	if (moveLegal(tboard, x, y, turn, -1,  1)) return 5;
+	if (moveLegal(tboard, x, y, turn, -1,  0)) return 6;
+	if (moveLegal(tboard, x, y, turn, -1, -1)) return 7;
+	return -1;
+}
+
+function playMoveD(tboard, x, y, turn, dx, dy) { // D -> dx, dy
+	while (true) {
+		x += dx;
+		y += dy;
+		if (tboard[x][y] === turn)
+			return;
+		tboard[x][y] = turn;
+	}
+}
+
+function playMove(tboard, x, y, turn, startsWith) {
 	tboard[x][y] = turn;
+	if (startsWith === 0)
+		playMoveD(tboard, x, y, turn,  1,  1);
+	if (startsWith === 1
+		|| (startsWith < 1 && moveLegal(tboard, x, y, turn,  1,  0)))
+		playMoveD(tboard, x, y, turn,  1,  0);
+	if (startsWith === 2
+		|| (startsWith < 2 && moveLegal(tboard, x, y, turn,  1, -1)))
+		playMoveD(tboard, x, y, turn,  1, -1);
+	if (startsWith === 3
+		|| (startsWith < 3 && moveLegal(tboard, x, y, turn,  0,  1)))
+		playMoveD(tboard, x, y, turn,  0,  1);
+	if (startsWith === 4
+		|| (startsWith < 4 && moveLegal(tboard, x, y, turn,  0, -1)))
+		playMoveD(tboard, x, y, turn,  0, -1);
+	if (startsWith === 5
+		|| (startsWith < 5 && moveLegal(tboard, x, y, turn, -1,  1)))
+		playMoveD(tboard, x, y, turn, -1,  1);
+	if (startsWith === 6
+		|| (startsWith < 6 && moveLegal(tboard, x, y, turn, -1,  0)))
+		playMoveD(tboard, x, y, turn, -1,  0);
+	if (startsWith === 7
+		|| (moveLegal(tboard, x, y, turn, -1, -1)))
+		playMoveD(tboard, x, y, turn, -1, -1);
 }
 
 function setTurn(newTurn) {
@@ -158,7 +215,7 @@ boardui.addEventListener('mousedown', function (e) {
 	if (e.which === 3)
 		return;
 	let move = getMove(e.pageX, e.pageY);
-	let legality = legalMove(board, move[0], move[1]);
+	let legality = legalMove(board, move[0], move[1], turnGlobal);
 	if (legality === -1)
 		return;
 
@@ -171,7 +228,7 @@ boardui.addEventListener('mousemove', function (e) {
 	if (e.which === 3)
 		return;
 	let move = getMove(e.pageX, e.pageY);
-	if (legalMove(board, move[0], move[1]) === -1)
+	if (legalMove(board, move[0], move[1], turnGlobal) === -1)
 		return;
 
 	drawBoard(move);
