@@ -6,6 +6,7 @@ var boardui = getElemId("board");
 var brush = boardui.getContext("2d");
 
 var board, turnGlobal;
+var over;
 
 function pageReady() {
 	resizeBoard();
@@ -56,6 +57,7 @@ function newGame() {
 	board[parseInt(dimensions[0] / 2 + 0.5)][parseInt(dimensions[1] / 2 - 0.5)] = 1;
 
 	turnGlobal = 0;
+	over = -2;
 
 	drawBoard();
 }
@@ -118,8 +120,8 @@ function drawPiece(x, y, hover) {
 function drawBoard(hoverMove) {
 	clearBoard();
 
-	for (var i = 0; i < board.length; i++)
-		for (var a = 0; a < board[i].length; a++)
+	for (let i = 0; i < board.length; i++)
+		for (let a = 0; a < board[i].length; a++)
 			drawPiece(i, a, false);
 
 	if (hoverMove !== undefined) {
@@ -132,8 +134,8 @@ function drawBoard(hoverMove) {
 }
 
 function getMove(xloc, yloc) {
-	var left = boardui.offsetLeft;
-	var top = boardui.offsetTop + contentWrapper.offsetTop;
+	let left = boardui.offsetLeft;
+	let top = boardui.offsetTop + contentWrapper.offsetTop;
 	if (xloc < left || xloc > left + boardWidth || yloc < top || yloc > boardHeight + top)
 		return [-1, -1];
 	return [Math.floor((xloc - left) / squareSize), Math.floor((yloc - top) / squareSize)];
@@ -167,6 +169,17 @@ function legalMove(tboard, x, y, turn) {
 	if (moveLegal(tboard, x, y, turn, -1,  0)) return 6;
 	if (moveLegal(tboard, x, y, turn, -1, -1)) return 7;
 	return -1;
+}
+
+function getLegalMoves(tboard, turn) {
+	let legalMoves = [], legality;
+	for (let i = 0; i < tboard.length; i++)
+		for (let a = 0; a < tboard[0].length; a++) {
+			legality = legalMove(tboard, i, a, turn);
+			if (legality !== -1)
+				legalMoves.push([i, a, legality]);
+		}
+	return legalMoves;
 }
 
 function playMoveD(tboard, x, y, turn, dx, dy) { // D -> dx, dy
@@ -206,13 +219,37 @@ function playMove(tboard, x, y, turn, startsWith) {
 		playMoveD(tboard, x, y, turn, -1, -1);
 }
 
+function getWinner(tboard) { // -1 tie, 0 black, 1 white
+	let count = 0;
+	for (let i = 0; i < tboard.length; i++)
+		for (let a = 0; a < tboard[0].length; a++)
+			if (tboard[i][a] === 0)
+				count--;
+			else if (tboard[i][a] === 1)
+				count++;
+	if (count < 0)
+		return 0;
+	if (count === 0)
+		return -1;
+	return 1;
+}
+
 function setTurn(newTurn) {
 	turnGlobal = newTurn;
+	let legalMoves = getLegalMoves(board, turnGlobal);
+	if (legalMoves.length === 0) {
+		turnGlobal = (newTurn + 1) % 2;
+		legalMoves = getLegalMoves(board, turnGlobal);
+		if (legalMoves.length === 0)
+			over = getWinner(board);
+	}
+	if (over !== -2)
+		alert("The game is over, " + over);
 	drawBoard();
 }
 
 boardui.addEventListener('mousedown', function (e) {
-	if (e.which === 3)
+	if (e.which === 3 || over !== -2)
 		return;
 	let move = getMove(e.pageX, e.pageY);
 	let legality = legalMove(board, move[0], move[1], turnGlobal);
@@ -225,7 +262,7 @@ boardui.addEventListener('mousedown', function (e) {
 });
 
 boardui.addEventListener('mousemove', function (e) {
-	if (e.which === 3)
+	if (e.which === 3 || over !== -2)
 		return;
 	let move = getMove(e.pageX, e.pageY);
 	if (legalMove(board, move[0], move[1], turnGlobal) === -1)
